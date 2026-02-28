@@ -1,0 +1,12 @@
+{
+  "input_type": "csv",
+  "output_type": "graphics",
+  "data_path": "data/gdp_with_continent_filled.csv",
+  "analysis": {
+    "continent": "Europe",
+    "year": 2020,
+    "start_year": 2015,
+    "end_year": 2020,
+    "decline_years": 5
+  }
+}
