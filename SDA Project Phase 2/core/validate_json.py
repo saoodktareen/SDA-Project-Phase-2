@@ -1,93 +1,126 @@
+import sys
+from typing import Dict, List, Union, Any
 import pandas as pd
 
-def validate_json(config: dict, clean_df: pd.DataFrame):
+def validate_json(config: Dict[str, Any], df: pd.DataFrame = None) -> tuple[Dict[str, Any], List[str]]:
     errors = []
 
-    required_keys = {"operation", "output", "country", "region", "year"}
+    # Extract from nested analysis or root level
+    analysis = config.get("analysis", {})
 
-    # ---------- 1. STRUCTURE CHECK ----------
-    if not isinstance(config, dict):
-        return None, ["JSON must be a dictionary"]
-
-    missing_keys = required_keys - config.keys()
-    extra_keys = config.keys() - required_keys
-
-    errors += list(map(lambda k: f"Missing keys: {list(missing_keys)}", missing_keys))
-    errors += list(map(lambda k: f"Extra keys not allowed: {list(extra_keys)}", extra_keys))
-
-    # ---------- 2. NULL / EMPTY CHECK ----------
-    def validate_value(item):
-        key, value = item
-        if value is None:
-            return f"'{key}' cannot be null"
-        if isinstance(value, str) and not value.strip():
-            return f"'{key}' cannot be empty"
-        if isinstance(value, list) and not value:
-            return f"'{key}' list cannot be empty"
-        return None
-
-    errors += list(
-        filter(
-            None,
-            map(validate_value, map(lambda k: (k, config.get(k)), required_keys))
-        )
+    # Operation: look in analysis first, then root, then default to "average"
+    operation = (
+        analysis.get("operation")
+        or config.get("operation")
+        or "average"
     )
 
-    # ---------- 3. OPERATION ----------
-    operation = str(config.get("operation", "")).lower()
+    # Output: analysis → root "output" → "output_type" → default "graphics"
+    output = (
+        analysis.get("output")
+        or config.get("output")
+        or config.get("output_type")
+        or "graphics"
+    )
+
+    # Other fields (normalize everything to lists where appropriate)
+    country_raw = analysis.get("country") or config.get("country", [])
+    region_raw  = analysis.get("region") or analysis.get("continent") or config.get("region", []) or config.get("continent", [])
+    year_raw    = analysis.get("year") or config.get("year", [])
+
+    # Normalize to lists
+    country = [country_raw] if isinstance(country_raw, str) else (country_raw if isinstance(country_raw, list) else [])
+    region = [region_raw] if isinstance(region_raw, str) else (region_raw if isinstance(region_raw, list) else [])
+    year = [year_raw] if isinstance(year_raw, int) else (year_raw if isinstance(year_raw, list) else [])
+
+    # Phase 2 new params
+    start_year = analysis.get("start_year", 1960)
+    end_year = analysis.get("end_year", 2024)
+    decline_years = analysis.get("decline_years", 3)
+    top_n = analysis.get("top_n", 10)
+    analyses_list = analysis.get("analyses", [])
+
+    # 1. Required keys check (Phase 1/2)
+    required = {"operation", "output_type", "data_path", "input_type"}
+    missing = required - set(config.keys()) - set(analysis.keys())
+    if missing:
+        errors.append(f"Missing keys: {list(missing)}")
+
+    # 2. Operation validation
     if operation not in {"sum", "average"}:
-        errors.append("Operation must be 'sum' or 'average'")
+        errors.append(f"Invalid operation: {operation}")
 
-    # ---------- 4. OUTPUT ----------
-    output = str(config.get("output", "")).lower()
-    if output != "dashboard":
-        errors.append("Output must be 'dashboard'")
+    # 3. Output validation
+    if output not in {"console", "graphics", "streamlit", "dashboard"}:
+        errors.append(f"Invalid output: {output}")
 
-    # ---------- 5. DF REFERENCES ----------
-    df_countries = set(clean_df["Country Name"].str.strip())
-    df_regions = set(clean_df["Continent"].str.strip())
-    df_years = {int(col) for col in clean_df.columns if col.isdigit()}
+    # 4. Country validation (cross-check with DF if provided - Phase 1 restore)
+    if df is not None:
+        df_countries = df["Country Name"].unique()
+        invalid_countries = [c for c in country if c not in df_countries]
+        if invalid_countries:
+            errors.append(f"Invalid countries: {invalid_countries}")
 
-    # ---------- 6. COUNTRY ----------
-    countries = config.get("country", [])
-    countries = [countries] if isinstance(countries, str) else countries
+    # 5. Region/Continent validation
+    if df is not None:
+        df_regions = df["Continent"].unique()
+        invalid_regions = [r for r in region if r not in df_regions]
+        if invalid_regions:
+            errors.append(f"Invalid regions: {invalid_regions}")
 
-    invalid_countries = list(filter(lambda c: c not in df_countries, countries))
-    if invalid_countries:
-        errors.append(f"Invalid country names: {invalid_countries}")
-
-    # ---------- 7. REGION ----------
-    regions = config.get("region", [])
-    regions = [regions] if isinstance(regions, str) else regions
-
-    invalid_regions = list(filter(lambda r: r not in df_regions, regions))
-    if invalid_regions:
-        errors.append(f"Invalid regions: {invalid_regions}")
-
-    # ---------- 8. YEAR ----------
-    years = config.get("year", [])
-    years = [years] if isinstance(years, int) else years
-
-    invalid_years = list(
-        filter(
-            lambda y: not isinstance(y, int) or y not in df_years or y < 1960 or y > 2024,
-            years
-        )
-    )
-
+    # 6. Year validation
+    if df is not None:
+        df_years = [int(col) for col in df.columns if str(col).isdigit()]
+        invalid_years = [y for y in year if not isinstance(y, int) or y not in df_years or y < 1960 or y > 2024]
+    else:
+        invalid_years = [y for y in year if not isinstance(y, int) or y < 1960 or y > 2024]
     if invalid_years:
         errors.append(f"Invalid years: {invalid_years}")
 
-    # ---------- 9. RETURN ----------
-    if errors:
-        return None, errors
+    # Phase 2 validations
+    input_type = config.get("input_type", "csv")
+    if input_type not in {"csv", "json", "excel", "browser"}:
+        errors.append(f"Invalid input_type: '{input_type}'")
 
+    data_path = config.get("data_path")
+    if not data_path:
+        errors.append("Missing 'data_path' in config")
+
+    if start_year >= end_year:
+        errors.append("start_year must be < end_year")
+
+    if decline_years <= 0:
+        errors.append("decline_years must be > 0")
+
+    if top_n <= 0:
+        errors.append("top_n must be > 0")
+
+    # Build validated config dict
     validated = {
         "operation": operation,
-        "output": output,
-        "country": countries,
-        "region": regions,
-        "year": years
+        "output_type": output,          # normalized name
+        "country": country,
+        "region": region,
+        "continent": region,  # Alias
+        "year": year,
+        "input_type": input_type,
+        "data_path": data_path,
+        "analysis": {
+            **analysis,
+            "start_year": start_year,
+            "end_year": end_year,
+            "decline_years": decline_years,
+            "top_n": top_n,
+            "analyses": analyses_list
+        }
     }
 
-    return validated, []
+    if errors:
+        print("Config validation errors:")
+        for err in errors:
+            print(f"  - {err}")
+
+    else:
+        print("[VALIDATION SUCCESS] Config is valid. Operation set to:", operation)
+
+    return validated, errors

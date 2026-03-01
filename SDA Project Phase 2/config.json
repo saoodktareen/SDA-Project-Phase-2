@@ -1,12 +1,18 @@
 {
-  "input_type": "csv",
-  "output_type": "graphics",
-  "data_path": "data/gdp_with_continent_filled.csv",
+  "input_type": "excel",
+  "output_type": "streamlit",
+  "data_path": "data/gdp_with_continent_filled.xlsx",
+  "config_source": "file",
+  "config_url": null,
   "analysis": {
-    "continent": "Europe",
-    "year": 2020,
+    "continent": ["Europe", "North America"],
+    "year": [2020, 2021, 2022],
     "start_year": 2015,
-    "end_year": 2020,
-    "decline_years": 5
+    "end_year": 2022,
+    "decline_years": 3,
+    "operation": "sum",
+    "country": ["Pakistan", "India"],
+    "top_n": 10,
+    "analyses": ["top10", "bottom10", "growth_rates", "averages", "trends", "fastest_growing", "declines", "contributions"]
   }
 }

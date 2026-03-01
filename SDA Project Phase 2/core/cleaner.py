@@ -1,3 +1,9 @@
+# Force UTF-8 encoding for stdout/stderr (Windows fix)
+import sys
+import io
+
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
 import pandas as pd
 
 def clean_data(df: pd.DataFrame):
@@ -40,28 +46,21 @@ def clean_data(df: pd.DataFrame):
     df = df[~bad_text_rows]
 
     # ---------- EMPTY COUNTRY ----------
-    bad_country_rows = df["Country Name"].str.strip().eq("")
+    bad_country_rows = df["Country Name"].str.strip() == ""
     error_log["empty_country"] = (df.index[bad_country_rows] + 2).tolist()
     df = df[~bad_country_rows]
 
-    # ---------- GDP LETTER CHECK ----------
-    # First convert to numeric 
-    gdp_original = df[gdp_cols].copy()
-    gdp_numeric = df[gdp_cols].apply(pd.to_numeric, errors="coerce")
-    
-    # Find cells that were not originally empty
-    was_not_empty = gdp_original.notna()
-    
-    # Find cells that became NaN after numeric conversion
-    became_nan = gdp_numeric.isna()
-    
-    # Cells with invalid data are those that had values but became NaN
-    has_invalid_data = was_not_empty & became_nan
-    bad_gdp_rows = has_invalid_data.any(axis=1)
+    # ---------- GDP VALIDATION ----------
+    gdp_numeric = pd.DataFrame()
+    bad_gdp_rows = pd.Series(False, index=df.index)
+    for col in gdp_cols:
+        numeric_col = pd.to_numeric(df[col], errors="coerce")
+        bad_gdp_rows |= df[col] != numeric_col.astype(str)
+        gdp_numeric[col] = numeric_col
 
-    error_log["corrected_gdp"] = (df.index[bad_gdp_rows] + 2).tolist()
+    error_log["gdp_alpha"] = (df.index[bad_gdp_rows] + 2).tolist()
 
-    # Print corrected GDP rows to terminal
+    # Phase 1 terminal report
     if bad_gdp_rows.any():
         print("\n" + "="*60)
         print("⚠️  GDP CORRECTION REPORT")

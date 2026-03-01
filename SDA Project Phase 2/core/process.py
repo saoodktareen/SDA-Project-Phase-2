@@ -1,25 +1,30 @@
 import pandas as pd
+from typing import Dict, Any
 
-def process(df: pd.DataFrame, config: dict, group_by: str) -> pd.DataFrame:
+def process(df: pd.DataFrame, config: Dict[str, Any], group_by: str) -> pd.DataFrame:
     """
-    Aggregates GDP based on JSON operation (sum / average)
-    and groups by the specified column.
+    Aggregates GDP based on the operation specified in config.
+    Used both for region-level and country-level summaries.
     
-    Parameters:
-    df        : filtered DataFrame
-    config    : validated JSON config
-    group_by  : column to group by (e.g., 'Continent', 'Year')
+    Phase 1 requirement: supports 'sum' and 'average'
+    Phase 2: pure function, no side effects, called from engine.
     """
+    operation = config.get("operation")
 
-    operation = config["operation"]
+    if operation not in {"sum", "average"}:
+        raise ValueError(f"Invalid operation: {operation}. Must be 'sum' or 'average'")
+
+    if df.empty:
+        return pd.DataFrame(columns=[group_by, "GDP"])
 
     grouped = df.groupby(group_by)["GDP"]
 
     if operation == "sum":
-        result_df = grouped.sum().reset_index(name="GDP")
-    elif operation == "average":
-        result_df = grouped.mean().reset_index(name="GDP")
-    else:
-        raise ValueError("Invalid operation in config")
+        result = grouped.sum().reset_index(name="GDP")
+    else:  # average
+        result = grouped.mean().reset_index(name="GDP")
 
-    return result_df
+    # Optional: round for nicer display (Phase 1 style)
+    result["GDP"] = result["GDP"].round(2)
+
+    return result
