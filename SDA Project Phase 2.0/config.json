@@ -1,0 +1,14 @@
+{
+  "input_type": "csv",
+  "output_type": "graphics",
+  "data_path": "data/gdp_with_continent_filled.csv",
+  "analysis": {
+    "region": ["Europe", "Africa", "Saood"],
+    "country": ["Germany", "France", "China", "Japan", "S"],
+    "year": 2020,
+    "start_year": 2015,
+    "end_year": 2020,
+    "decline_years": 5,
+    "operation": "sum"
+  }
+}
