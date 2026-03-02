@@ -58,7 +58,7 @@ class GraphicsChartWriter(DataSink):
             tmp_path = tmp.name
 
         # Path to your dashboard
-        dashboard_path = os.path.join(os.path.dirname(__file__), "..", "streamlit_app.py")
+        dashboard_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dashboard", "streamlit_app.py"))
 
         # Launch Streamlit with the temp file as argument
         cmd = [sys.executable, "-m", "streamlit", "run", dashboard_path, "--", tmp_path]

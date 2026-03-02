@@ -1,13 +1,13 @@
 {
   "input_type": "csv",
-  "output_type": "console",
+  "output_type": "graphics",
   "data_path": "data/gdp_with_continent_filled.csv",
   "analysis": {
-    "region": ["Europe", "Africa"],
-    "country": ["Germany", "France", "China", "Japan", "Pakistan"],
-    "year": 2020,
-    "start_year": 2015,
-    "end_year": 2020,
-    "decline_years": 5
+    "region": ["Europe", "Oceania"],
+    "country": ["Germany", "France", "China", "Japan", "Pakistan", "India", "Zimbabwe"],
+    "year": 2008,
+    "start_year": 1995,
+    "end_year": 2022,
+    "decline_years": 9
   }
 }
