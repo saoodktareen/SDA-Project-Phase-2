@@ -1,6 +1,6 @@
 {
   "input_type": "csv",
-  "output_type": "graphics",
+  "output_type": "console",
   "data_path": "data/gdp_with_continent_filled.csv",
   "analysis": {
     "region": ["Europe", "Africa"],
