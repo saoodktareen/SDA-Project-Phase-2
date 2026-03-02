@@ -172,5 +172,38 @@ class TransformationEngine(PipelineService):
                     "title": f"GDP Trend – Last {decline_n} Years ({start_y}–{end_y}) for Selected Countries",
                     "data": decline_countries_data
                 })
+            
+        # Fastest Growing Continent for the given date range ──
+        if start_year and end_year and start_year != end_year:
+            df_range = df_global[(df_global["Year"] >= start_year) & (df_global["Year"] <= end_year)]
+
+            # Calculate total GDP at start and end year per continent
+            gdp_start = df_range[df_range["Year"] == start_year].groupby("Continent")["GDP"].sum().reset_index(name="GDP_Start")
+            gdp_end   = df_range[df_range["Year"] == end_year].groupby("Continent")["GDP"].sum().reset_index(name="GDP_End")
+
+            # Merge start and end GDP
+            growth = pd.merge(gdp_start, gdp_end, on="Continent", how="outer").fillna(0)
+
+            # Calculate growth rate (avoid division by zero)
+            growth["Growth_Rate_%"] = ((growth["GDP_End"] - growth["GDP_Start"]) / growth["GDP_Start"].replace(0, float('inf')) * 100).round(2)
+            growth["Growth_Rate_%"] = growth["Growth_Rate_%"].replace([float('inf'), -float('inf')], 0)
+
+            # Find the continent with highest growth rate
+            if not growth.empty:
+                fastest = growth.loc[growth["Growth_Rate_%"].idxmax()]
+
+                fastest_data = {
+                    "Continent": fastest["Continent"],
+                    "Start_GDP": round(fastest["GDP_Start"], 2),
+                    "End_GDP": round(fastest["GDP_End"], 2),
+                    "Growth_Rate_%": fastest["Growth_Rate_%"],
+                    "Period": f"{start_year}–{end_year}"
+                }
+
+                results.append({
+                    "type": "fastest_growing_continent",
+                    "title": f"Fastest Growing Continent ({start_year}–{end_year})",
+                    "data": [fastest_data]  # single item list
+                })
         # ── Write all results to sink ────────────────────────────────────
         self.sink.write(results)

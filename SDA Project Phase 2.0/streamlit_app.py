@@ -481,6 +481,46 @@ else:
                         )
                         fig.update_traces(textposition="inside", textinfo="percent+label")
                         st.plotly_chart(fig, use_container_width=True)
+                    
+                    elif typ == "fastest_growing_continent":
+                        df = pd.DataFrame(data)
+
+                        if df.empty:
+                            st.info("No sufficient data to calculate growth rates.")
+                        else:
+                            continent = df.iloc[0]["Continent"]
+                            growth_rate = df.iloc[0]["Growth_Rate_%"]
+                            start_gdp = df.iloc[0]["Start_GDP"]
+                            end_gdp = df.iloc[0]["End_GDP"]
+                            period = df.iloc[0]["Period"]
+
+                            fig = px.bar(
+                                df,
+                                x="Continent",
+                                y="Growth_Rate_%",
+                                color="Continent",
+                                color_discrete_sequence=["#10B981"],  # green for growth
+                                title=selected["title"],
+                                text=df["Growth_Rate_%"].apply(lambda x: f"{x}%")
+                            )
+
+                            fig.update_traces(
+                                textposition="auto",
+                                textfont_size=14,
+                                marker_line_width=1.5
+                            )
+
+                            fig.update_layout(
+                                xaxis_title="Fastest Growing Continent",
+                                yaxis_title="Average Annual Growth Rate (%)",
+                                showlegend=False,
+                                height=400
+                            )
+
+                            st.plotly_chart(fig, use_container_width=True)
+
+                            st.markdown(f"**{continent}** was the fastest growing continent in {period} with **{growth_rate}%** average annual growth.")
+                            st.caption(f"Start GDP: ${start_gdp:,.2f} → End GDP: ${end_gdp:,.2f}")
 
                     else:
                         st.dataframe(df, use_container_width=True)
