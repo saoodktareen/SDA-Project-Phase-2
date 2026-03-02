@@ -1,0 +1,185 @@
+@startuml GDP_Analysis_Architecture
+
+!define CORE_COLOR #1a3a5c
+!define INPUT_COLOR #1a4a2e
+!define OUTPUT_COLOR #4a1a1a
+!define MAIN_COLOR #3a2a5c
+!define PROTOCOL_COLOR #4a3a0a
+
+skinparam backgroundColor #0d0d14
+skinparam defaultFontColor #e2e8f0
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+
+skinparam package {
+    BackgroundColor #13131f
+    BorderColor #2a2a45
+    FontColor #c7d2fe
+    FontSize 13
+    FontStyle bold
+}
+
+skinparam interface {
+    BackgroundColor #fbbf24
+    BorderColor #d97706
+    FontColor #0d0d14
+}
+
+skinparam class {
+    BackgroundColor #1e1e35
+    BorderColor #3b4a6b
+    FontColor #e2e8f0
+    HeaderBackgroundColor #1a2a4a
+    AttributeFontColor #94a3b8
+    StereotypeFontColor #60a5fa
+}
+
+skinparam arrow {
+    Color #60a5fa
+    FontColor #94a3b8
+    FontSize 10
+}
+
+' ─────────────────────────────────────────────────────
+'  MAIN / ORCHESTRATOR
+' ─────────────────────────────────────────────────────
+package "main.py  (Orchestrator)" <<Rectangle>> {
+    class Bootstrap {
+        + bootstrap() : void
+        - load_config(path: str) : dict
+        - wire_components() : void
+    }
+    note right of Bootstrap
+        1. Reads config.json
+        2. Instantiates Sink
+        3. Injects Sink → Engine
+        4. Injects Engine → Reader
+        5. Calls reader.run()
+    end note
+}
+
+' ─────────────────────────────────────────────────────
+'  CORE (DOMAIN)
+' ─────────────────────────────────────────────────────
+package "core/  (Domain — owns all Protocols)" <<Rectangle>> {
+
+    interface DataSink <<Protocol>> {
+        + write(records: List[dict]) : None
+    }
+
+    interface PipelineService <<Protocol>> {
+        + execute(raw_data: List[Any]) : None
+    }
+
+    class TransformationEngine {
+        - sink : DataSink
+        - config : dict
+        + __init__(sink: DataSink, config: dict)
+        + execute(raw_data: List[Any]) : None
+        - _continent_filter(df, region) : DataFrame
+        - _country_filter(df, country) : DataFrame
+        - _top10(df, region, year) : dict
+        - _bottom10(df, region, year) : dict
+        - _growth_rate(df, region, start, end) : dict
+        - _avg_by_continent(df, start, end) : dict
+        - _global_trend(df, start, end) : dict
+        - _fastest_continent(df, start, end) : dict
+        - _decline_countries(df, n_years, end) : dict
+        - _contribution(df, start, end) : dict
+    }
+
+    class DataCleaner {
+        + clean_data(df: DataFrame) : (DataFrame, dict)
+    }
+
+    class DataTransformer {
+        + transform_to_long(df: DataFrame) : DataFrame
+    }
+
+    class DataLoader {
+        + load_data(path: str) : DataFrame
+        + load_json(path: str) : dict
+    }
+
+    class ProcessAggregator {
+        + process(df, config, group_by) : DataFrame
+    }
+
+    class FilterByRegion {
+        + filter_by_region(df, config) : DataFrame
+    }
+
+    class FilterByCountry {
+        + filter_by_country(df, config) : DataFrame
+    }
+}
+
+' ─────────────────────────────────────────────────────
+'  INPUT PLUGINS
+' ─────────────────────────────────────────────────────
+package "plugins/inputs.py  (Source)" <<Rectangle>> {
+    class CSVReader {
+        - service : PipelineService
+        - data_path : str
+        + __init__(service: PipelineService, path: str)
+        + run() : None
+    }
+
+    class JSONReader {
+        - service : PipelineService
+        - data_path : str
+        + __init__(service: PipelineService, path: str)
+        + run() : None
+    }
+}
+
+' ─────────────────────────────────────────────────────
+'  OUTPUT PLUGINS
+' ─────────────────────────────────────────────────────
+package "plugins/outputs.py  (Sink)" <<Rectangle>> {
+    class ConsoleWriter {
+        + write(records: List[dict]) : None
+    }
+
+    class GraphicsChartWriter {
+        + write(records: List[dict]) : None
+    }
+
+    class StreamlitSink {
+        + write(records: List[dict]) : None
+    }
+}
+
+' ─────────────────────────────────────────────────────
+'  RELATIONSHIPS
+' ─────────────────────────────────────────────────────
+
+' Core owns both protocols (they live in core/contracts.py)
+TransformationEngine .up.|> PipelineService : implements
+ConsoleWriter        .up.|> DataSink        : implements
+GraphicsChartWriter  .up.|> DataSink        : implements
+StreamlitSink        .up.|> DataSink        : implements
+
+' Engine depends on DataSink abstraction (injected)
+TransformationEngine o--> DataSink : uses (injected)
+
+' Readers depend on PipelineService abstraction (injected)
+CSVReader  o--> PipelineService : uses (injected)
+JSONReader o--> PipelineService : uses (injected)
+
+' Engine uses core helpers
+TransformationEngine ..> DataCleaner      : uses
+TransformationEngine ..> DataTransformer  : uses
+TransformationEngine ..> ProcessAggregator: uses
+TransformationEngine ..> FilterByRegion   : uses
+TransformationEngine ..> FilterByCountry  : uses
+
+' Bootstrap wires everything
+Bootstrap ..> DataLoader          : loads config/data
+Bootstrap ..> ConsoleWriter       : instantiates
+Bootstrap ..> GraphicsChartWriter : instantiates
+Bootstrap ..> TransformationEngine: instantiates & injects sink
+Bootstrap ..> CSVReader           : instantiates & injects engine
+Bootstrap ..> JSONReader          : instantiates & injects engine
+
+@enduml
