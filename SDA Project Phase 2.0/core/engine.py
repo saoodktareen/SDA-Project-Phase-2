@@ -34,6 +34,7 @@ class TransformationEngine(PipelineService):
         start_year = self.config.get("start_year")
         end_year = self.config.get("end_year")
         countries = self.config.get("country")
+        decline_years = self.config.get("decline_years")
 
         if not region and self.config.get("continent"):
             region = self.config.get("continent")
@@ -110,4 +111,66 @@ class TransformationEngine(PipelineService):
                 "data": contrib[["Continent", "Contribution_%", "is_selected"]].to_dict("records"),
             })
 
+        # ── Consistent GDP Decline Check – Show ALL selected countries ──
+        if decline_years is not None:
+            decline_n = int(decline_years)
+
+            # Use only selected countries (fallback to region or all)
+            df_check = df_long.copy()
+            if countries:
+                df_check = self._country_filter(df_check, countries)
+            elif region:
+                df_check = self._continent_filter(df_check, region)
+
+            # Determine the period: prefer end_year, fallback to latest year
+            end_y = end_year if end_year else df_check["Year"].max()
+            start_y = end_y - decline_n + 1
+
+            if start_y < df_check["Year"].min():
+                start_y = df_check["Year"].min()  # adjust to available data
+
+            decline_countries_data = []
+
+            # Process every selected country
+            for country in df_check["Country Name"].unique():
+                country_df = df_check[(df_check["Country Name"] == country) &
+                                     (df_check["Year"] >= start_y) &
+                                     (df_check["Year"] <= end_y)]
+
+                # Get actual number of years available
+                actual_years = len(country_df)
+                if actual_years < 2:
+                    continue  # not enough data points
+
+                # Sort and check if strict decline
+                sorted_df = country_df.sort_values("Year")
+                gdp_values = sorted_df["GDP"].values
+                is_decline = all(gdp_values[i] > gdp_values[i+1] for i in range(len(gdp_values)-1))
+
+                # Prepare chart data (show all available years in period + some context)
+                chart_df = sorted_df[["Year", "GDP"]]
+                # Add 5 previous years if available for context
+                context_start = max(df_check["Year"].min(), start_y - 5)
+                context_df = df_check[(df_check["Country Name"] == country) &
+                                     (df_check["Year"] >= context_start) &
+                                     (df_check["Year"] < start_y)]
+                chart_df = pd.concat([context_df[["Year", "GDP"]], chart_df]).sort_values("Year")
+
+                decline_countries_data.append({
+                    "country": country,
+                    "decline_years_requested": decline_n,
+                    "years_checked": actual_years,
+                    "start_year": int(sorted_df["Year"].min()),
+                    "end_year": int(sorted_df["Year"].max()),
+                    "is_decline": is_decline,
+                    "chart_data": chart_df.to_dict("records")
+                })
+
+            if decline_countries_data:
+                results.append({
+                    "type": "decline",
+                    "title": f"GDP Trend – Last {decline_n} Years ({start_y}–{end_y}) for Selected Countries",
+                    "data": decline_countries_data
+                })
+        # ── Write all results to sink ────────────────────────────────────
         self.sink.write(results)
