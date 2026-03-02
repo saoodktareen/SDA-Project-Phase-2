@@ -1,6 +1,3 @@
-# File: plugins/outputs.py
-# Changes: Changed dashboard_path to "streamlit_app.py" since streamlit_app.py now handles both interactive and viewer modes (with sys.argv check). Added os.path.abspath to resolve relative paths properly, preventing issues with '..' in Windows. This should fix the "File does not exist" error by providing a fully resolved absolute path to Streamlit.
-
 from typing import List
 import os
 import subprocess
@@ -10,6 +7,37 @@ import json
 from core.contracts import DataSink
 import pandas as pd
 
+# ── Input readers (already there) ────────────────────────────────────────
+class CSVReader:
+    def __init__(self, service, data_path: str):
+        self.service = service
+        self.data_path = data_path
+
+    def run(self):
+        from core.load_data import load_data
+        from core.cleaner import clean_data
+        from core.transform import transform_to_long
+        df_wide = load_data(self.data_path)
+        cleaned_wide, _ = clean_data(df_wide)
+        df_long = transform_to_long(cleaned_wide)
+        self.service.execute(df_long.to_dict("records"))
+
+class JSONReader:
+    def __init__(self, service, data_path: str):
+        self.service = service
+        self.data_path = data_path
+
+    def run(self):
+        from core.cleaner import clean_data
+        from core.transform import transform_to_long
+        with open(self.data_path) as f:
+            data = json.load(f)
+        df_wide = pd.DataFrame(data)
+        cleaned_wide, _ = clean_data(df_wide)
+        df_long = transform_to_long(cleaned_wide)
+        self.service.execute(df_long.to_dict("records"))
+
+# ── Output writers (add these back) ──────────────────────────────────────
 class ConsoleWriter(DataSink):
     def write(self, records: List[dict]) -> None:
         for r in records:
@@ -29,8 +57,8 @@ class GraphicsChartWriter(DataSink):
             json.dump(records, tmp, indent=2)
             tmp_path = tmp.name
 
-        # Path to your dashboard - use abspath to resolve fully
-        dashboard_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "streamlit_app.py"))
+        # Path to your dashboard
+        dashboard_path = os.path.join(os.path.dirname(__file__), "..", "streamlit_app.py")
 
         # Launch Streamlit with the temp file as argument
         cmd = [sys.executable, "-m", "streamlit", "run", dashboard_path, "--", tmp_path]

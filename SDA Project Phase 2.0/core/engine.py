@@ -1,6 +1,3 @@
-# File: core/engine.py
-# Changes: Removed usage of "operation" (not present). Removed "decline_years" block. Removed config.get("continent") fallback. Fixed aggregations to use sum/mean internally as appropriate (no user-specified operation). Reconstructed full code based on provided truncated version, assuming standard logic for results generation.
-
 from typing import List, Any
 import pandas as pd
 from .contracts import DataSink, PipelineService
@@ -37,6 +34,10 @@ class TransformationEngine(PipelineService):
         start_year = self.config.get("start_year")
         end_year = self.config.get("end_year")
         countries = self.config.get("country")
+        decline_years = self.config.get("decline_years")
+
+        if not region and self.config.get("continent"):
+            region = self.config.get("continent")
 
         region_label = ", ".join(region) if isinstance(region, list) else (region or "All")
         has_countries = bool(countries)
@@ -59,20 +60,16 @@ class TransformationEngine(PipelineService):
                     "data": trend_lines.to_dict("records"),
                 })
 
-        # ── CONTINENT VIEWS – always include ────────────────────────────────
-        df_global = df_long.copy()  # For global aggregates
+        # ── CONTINENT VIEWS – always ALL continents, ignore country filter ──
+        df_global = df_long.copy()  # full data, no country restriction
 
-        if region:
-            df_filtered = self._continent_filter(df_long, region)
-        else:
-            df_filtered = df_long
+        # Top 10 & Bottom 10 – only from selected regions, single year
+        if region and year:
+            df_year = self._continent_filter(df_global, region)
+            df_year = df_year[df_year["Year"] == year]
+            top10 = df_year.nlargest(10, "GDP")[["Country Name", "GDP"]].round(2).to_dict("records")
+            bottom10 = df_year.nsmallest(10, "GDP")[["Country Name", "GDP"]].round(2).to_dict("records")
 
-        # Top/Bottom 10 by GDP for specific year (sum implied)
-        if year:
-            df_year = df_filtered[df_filtered["Year"] == year]
-            country_gdp = df_year.groupby("Country Name")["GDP"].sum().reset_index().sort_values("GDP", ascending=False).round(2)
-            top10 = country_gdp.head(10).to_dict("records")
-            bottom10 = country_gdp.tail(10).to_dict("records")
             results.append({"type": "top10", "title": f"Top 10 Countries by GDP in {region_label} ({year})", "data": top10})
             results.append({"type": "bottom10", "title": f"Bottom 10 Countries by GDP in {region_label} ({year})", "data": bottom10})
 
@@ -114,4 +111,52 @@ class TransformationEngine(PipelineService):
                 "data": contrib[["Continent", "Contribution_%", "is_selected"]].to_dict("records"),
             })
 
+        # ── Countries with Consistent GDP Decline (ONE entry, multiple charts inside) ──
+        if decline_years is not None:
+            decline_n = int(decline_years)
+
+            decline_countries_data = []
+
+            latest_years = df_long.groupby("Country Name")["Year"].max().reset_index()
+            latest_years["Start Year"] = latest_years["Year"] - decline_n + 1
+
+            for _, row in latest_years.iterrows():
+                country = row["Country Name"]
+                start_y = row["Start Year"]
+                end_y = row["Year"]
+
+                if start_y < df_long["Year"].min():
+                    continue
+
+                country_df = df_long[(df_long["Country Name"] == country) & 
+                                    (df_long["Year"] >= start_y) & 
+                                    (df_long["Year"] <= end_y)]
+
+                if len(country_df) != decline_n:
+                    continue
+
+                gdp_sorted = country_df.sort_values("Year")["GDP"].values
+                is_decline = all(gdp_sorted[i] > gdp_sorted[i+1] for i in range(len(gdp_sorted)-1))
+
+                if is_decline:
+                    # Get more context for chart (last 15 years or all if less)
+                    full_country_df = df_long[df_long["Country Name"] == country].sort_values("Year")
+                    recent_df = full_country_df.tail(max(15, decline_n + 5))
+
+                    decline_countries_data.append({
+                        "country": country,
+                        "decline_years": decline_n,
+                        "start_year": start_y,
+                        "end_year": end_y,
+                        "chart_data": recent_df[["Year", "GDP"]].to_dict("records")
+                    })
+
+            if decline_countries_data:
+                results.append({
+                    "type": "decline",
+                    "title": f"Countries with Consistent GDP Decline in Last {decline_n} Years",
+                    "data": decline_countries_data  # list of dicts, each with country + chart_data
+                })
+
+        # ── Write all results to sink ────────────────────────────────────
         self.sink.write(results)

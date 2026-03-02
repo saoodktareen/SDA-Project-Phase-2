@@ -1,86 +1,93 @@
-# File: core/validate_json.py
-# Changes: Updated required keys to region, country, start_year, end_year (year optional). Removed operation, output. Handle region/country as str or list. Validate years 1960-2024, start <= end. Check against clean_df uniques. No checks for df_years presence, only range.
-
 import pandas as pd
 
 def validate_json(config: dict, clean_df: pd.DataFrame):
     errors = []
 
-    required_keys = {"region", "country", "start_year", "end_year"}
+    required_keys = {"operation", "output", "country", "region", "year"}
 
+    # ---------- 1. STRUCTURE CHECK ----------
     if not isinstance(config, dict):
-        return None, ["Config must be a dictionary"]
+        return None, ["JSON must be a dictionary"]
 
     missing_keys = required_keys - config.keys()
-    if missing_keys:
-        errors.append(f"Missing required keys: {list(missing_keys)}")
+    extra_keys = config.keys() - required_keys
 
-    # NULL / EMPTY CHECK
-    for key in required_keys:
-        value = config.get(key)
+    errors += list(map(lambda k: f"Missing keys: {list(missing_keys)}", missing_keys))
+    errors += list(map(lambda k: f"Extra keys not allowed: {list(extra_keys)}", extra_keys))
+
+    # ---------- 2. NULL / EMPTY CHECK ----------
+    def validate_value(item):
+        key, value = item
         if value is None:
-            errors.append(f"'{key}' cannot be null")
-        elif isinstance(value, list) and not value:
-            pass  # Allow empty lists (means all)
-        elif isinstance(value, str) and not value.strip():
-            errors.append(f"'{key}' cannot be empty string")
+            return f"'{key}' cannot be null"
+        if isinstance(value, str) and not value.strip():
+            return f"'{key}' cannot be empty"
+        if isinstance(value, list) and not value:
+            return f"'{key}' list cannot be empty"
+        return None
 
-    # REGION
-    region = config.get("region")
-    if region is not None:
-        if not isinstance(region, (str, list)):
-            errors.append("'region' must be string or list")
-        else:
-            regions = [region] if isinstance(region, str) else region
-            df_regions = set(clean_df["Continent"].dropna().unique())
-            invalid_regions = set(regions) - df_regions
-            if invalid_regions:
-                errors.append(f"Invalid regions: {list(invalid_regions)}")
+    errors += list(
+        filter(
+            None,
+            map(validate_value, map(lambda k: (k, config.get(k)), required_keys))
+        )
+    )
 
-    # COUNTRY
-    country = config.get("country")
-    if country is not None:
-        if not isinstance(country, (str, list)):
-            errors.append("'country' must be string or list")
-        else:
-            countries = [country] if isinstance(country, str) else country
-            df_countries = set(clean_df["Country Name"].dropna().unique())
-            invalid_countries = set(countries) - df_countries
-            if invalid_countries:
-                errors.append(f"Invalid countries: {list(invalid_countries)}")
+    # ---------- 3. OPERATION ----------
+    operation = str(config.get("operation", "")).lower()
+    if operation not in {"sum", "average"}:
+        errors.append("Operation must be 'sum' or 'average'")
 
-    # START_YEAR, END_YEAR
-    start_year = config.get("start_year")
-    end_year = config.get("end_year")
-    if isinstance(start_year, int) and isinstance(end_year, int):
-        if not (1960 <= start_year <= 2024):
-            errors.append("start_year must be between 1960 and 2024")
-        if not (1960 <= end_year <= 2024):
-            errors.append("end_year must be between 1960 and 2024")
-        if start_year > end_year:
-            errors.append("start_year must be <= end_year")
-    else:
-        if start_year is not None and not isinstance(start_year, int):
-            errors.append("start_year must be integer")
-        if end_year is not None and not isinstance(end_year, int):
-            errors.append("end_year must be integer")
+    # ---------- 4. OUTPUT ----------
+    output = str(config.get("output", "")).lower()
+    if output != "dashboard":
+        errors.append("Output must be 'dashboard'")
 
-    # YEAR (optional)
-    year = config.get("year")
-    if year is not None:
-        if not isinstance(year, int):
-            errors.append("year must be integer")
-        elif not (1960 <= year <= 2024):
-            errors.append("year must be between 1960 and 2024")
+    # ---------- 5. DF REFERENCES ----------
+    df_countries = set(clean_df["Country Name"].str.strip())
+    df_regions = set(clean_df["Continent"].str.strip())
+    df_years = {int(col) for col in clean_df.columns if col.isdigit()}
 
+    # ---------- 6. COUNTRY ----------
+    countries = config.get("country", [])
+    countries = [countries] if isinstance(countries, str) else countries
+
+    invalid_countries = list(filter(lambda c: c not in df_countries, countries))
+    if invalid_countries:
+        errors.append(f"Invalid country names: {invalid_countries}")
+
+    # ---------- 7. REGION ----------
+    regions = config.get("region", [])
+    regions = [regions] if isinstance(regions, str) else regions
+
+    invalid_regions = list(filter(lambda r: r not in df_regions, regions))
+    if invalid_regions:
+        errors.append(f"Invalid regions: {invalid_regions}")
+
+    # ---------- 8. YEAR ----------
+    years = config.get("year", [])
+    years = [years] if isinstance(years, int) else years
+
+    invalid_years = list(
+        filter(
+            lambda y: not isinstance(y, int) or y not in df_years or y < 1960 or y > 2024,
+            years
+        )
+    )
+
+    if invalid_years:
+        errors.append(f"Invalid years: {invalid_years}")
+
+    # ---------- 9. RETURN ----------
     if errors:
         return None, errors
 
-    # Normalize to lists
-    validated = config.copy()
-    if isinstance(validated.get("region"), str):
-        validated["region"] = [validated["region"]]
-    if isinstance(validated.get("country"), str):
-        validated["country"] = [validated["country"]]
+    validated = {
+        "operation": operation,
+        "output": output,
+        "country": countries,
+        "region": regions,
+        "year": years
+    }
 
     return validated, []

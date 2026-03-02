@@ -7,8 +7,6 @@
     "country": ["Germany", "France", "China", "Japan"],
     "year": 2020,
     "start_year": 2015,
-    "end_year": 2020,
-    "decline_years": 5,
-    "operation": "sum"
+    "end_year": 2020
   }
 }
